@@ -1,5 +1,3 @@
-#![feature(iter_advance_by)]
-
 use std::collections::HashMap;
 
 fn token_to_kv(token: &str) -> (&str, Box<dyn Args>) {
