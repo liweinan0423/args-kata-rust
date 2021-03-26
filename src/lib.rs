@@ -1,3 +1,5 @@
+#![feature(iter_advance_by)]
+
 use std::collections::HashMap;
 
 fn token_to_kv(token: &str) -> (&str, Box<dyn Args>) {
@@ -8,10 +10,10 @@ fn token_to_kv(token: &str) -> (&str, Box<dyn Args>) {
             match &token[1..=1] {
                 "*" => (arg_name, Box::new(StringArg(None))),
                 "#" => (arg_name, Box::new(NumberArg(None))),
-                t => panic!(format!("unknow arg type! - {}", t)),
+                t => panic!("unknow arg type! - {}", t),
             }
-        }
-        _ => panic!("invalid schema"),
+        },
+        0 | _ => panic!("invalid schema"),
     }
 }
 
@@ -25,18 +27,14 @@ pub fn parse<'a>(schema: &'a str, input: &'a str) -> HashMap<&'a str, Box<dyn Ar
             let arg_name = &token[1..=1];
             args.get_mut(arg_name)
                 .unwrap()
-                .set(if index < vec.len() - 1 {
-                    vec[index + 1]
-                } else {
-                    ""
-                });
+                .set(&vec[index..]);
         }
     }
     return args;
 }
 
 pub trait Args {
-    fn set(&mut self, val: &str);
+    fn set(&mut self, tokens: &[&str]);
     fn get(&self) -> String;
     fn as_number(&self) -> isize {
         self.get().parse().unwrap()
@@ -50,9 +48,9 @@ struct StringArg(Option<String>);
 struct BoolArg(Option<bool>);
 struct NumberArg(Option<isize>);
 
-impl<'a> Args for StringArg {
-    fn set(&mut self, val: &str) {
-        self.0.replace(val.to_string());
+impl Args for StringArg {
+    fn set(&mut self, val: &[&str]) {
+        self.0.replace(val[1].to_string());
     }
 
     fn get(&self) -> String {
@@ -60,7 +58,7 @@ impl<'a> Args for StringArg {
     }
 }
 impl Args for BoolArg {
-    fn set(&mut self, _val: &str) {
+    fn set(&mut self, _: &[&str]) {
         self.0.replace(true);
     }
 
@@ -72,8 +70,8 @@ impl Args for BoolArg {
     }
 }
 impl Args for NumberArg {
-    fn set(&mut self, val: &str) {
-        let val = val.parse().unwrap();
+    fn set(&mut self, val: &[&str]) {
+        let val = val[1].parse().unwrap();
         self.0.replace(val);
     }
 
