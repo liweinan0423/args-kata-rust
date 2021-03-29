@@ -26,7 +26,11 @@ pub fn parse<'a>(
     args.and_then(|mut args| {
         for token in TokensIterator::from(input.to_string()) {
             if let Some(arg) = args.get_mut(&token.modifier[..]) {
-                arg.set(token.values);
+                let result = arg.set(token.values);
+                if result.is_err() {
+                    return Err(result.unwrap_err());
+                }
+                
             } else {
                 return Err(ParseErr::UnknownArg(token.modifier));
             }
@@ -73,7 +77,7 @@ impl Iterator for TokensIterator {
 }
 
 pub trait Args {
-    fn set(&mut self, tokens: Vec<String>);
+    fn set(&mut self, tokens: Vec<String>) -> Result<(), ParseErr>;
     fn get(&self) -> Option<String>;
     fn as_number(&self) -> Option<isize> {
         self.get().and_then(|v| v.parse().ok())
@@ -90,8 +94,9 @@ struct BoolArg(Option<bool>);
 struct NumberArg(Option<isize>);
 
 impl Args for StringArg {
-    fn set(&mut self, val: Vec<String>) {
+    fn set(&mut self, val: Vec<String>) -> Result<(), ParseErr> {
         self.0.replace(val.join(""));
+        Ok(())
     }
 
     fn get(&self) -> Option<String> {
@@ -99,8 +104,9 @@ impl Args for StringArg {
     }
 }
 impl Args for BoolArg {
-    fn set(&mut self, _: Vec<String>) {
+    fn set(&mut self, _: Vec<String>) -> Result<(), ParseErr> {
         self.0.replace(true);
+        Ok(())
     }
 
     fn get(&self) -> Option<String> {
@@ -111,9 +117,13 @@ impl Args for BoolArg {
     }
 }
 impl Args for NumberArg {
-    fn set(&mut self, val: Vec<String>) {
-        if let Ok(val) = val.join("").parse() {
-            self.0.replace(val);
+    fn set(&mut self, val: Vec<String>) -> Result<(), ParseErr> {
+        match val.join("").parse() {
+            Ok(val) => {
+                self.0.replace(val);
+                Ok(())
+            }
+            Err(_) => Err(ParseErr::NumberFormatErr(val.join(""))),
         }
     }
 
@@ -229,6 +239,12 @@ mod tests {
             let args = parse("d*", "-p 8080");
             assert_eq!(args.unwrap_err(), ParseErr::UnknownArg("p".to_string()));
         }
+
+        #[test]
+        fn should_return_number_format_err() {
+            let args = parse("p#", "-p foo");
+            assert_eq!(args.unwrap_err(), ParseErr::NumberFormatErr("foo".to_string()));
+        }
     }
 }
 
@@ -237,4 +253,5 @@ pub enum ParseErr {
     InvalidSchema,
     UnsupportedArgType(String),
     UnknownArg(String),
+    NumberFormatErr(String)
 }
