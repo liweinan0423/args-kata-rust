@@ -4,7 +4,7 @@ use std::{collections::HashMap, io::empty};
 
 fn token_to_kv(token: &str) -> Result<(&str, Box<dyn Args>), ParseErr> {
     match token.len() {
-        1 => Ok((token, Box::new(BoolArg(None)))),
+        1 => Ok((token, Box::new(BoolArg(false)))),
         2 => {
             let arg_name = &token[..=0];
             match &token[1..=1] {
@@ -89,7 +89,7 @@ pub trait Args {
 #[derive(Debug)]
 struct StringArg(Option<String>);
 #[derive(Debug)]
-struct BoolArg(Option<bool>);
+struct BoolArg(bool);
 #[derive(Debug)]
 struct NumberArg(Option<isize>);
 
@@ -104,16 +104,17 @@ impl Args for StringArg {
     }
 }
 impl Args for BoolArg {
-    fn set(&mut self, _: Vec<String>) -> Result<(), ParseErr> {
-        self.0.replace(true);
+    fn set(&mut self, values: Vec<String>) -> Result<(), ParseErr> {
+        if values.len() == 0 || values.join("").to_lowercase() == "true" {
+            self.0 = true;
+        } else {
+            self.0 = false;
+        }
         Ok(())
     }
 
     fn get(&self) -> Option<String> {
-        match self.0 {
-            Some(_) => Some("true".to_string()),
-            None => Some("false".to_string()),
-        }
+        Some(self.0.to_string())
     }
 }
 impl Args for NumberArg {
@@ -169,6 +170,27 @@ mod tests {
         fn parse_bool_arg_true() {
             let args = parse("l", "-l").unwrap();
             assert_eq!(args.get("l").unwrap().as_bool().unwrap(), true);
+        }
+
+        #[test]
+        fn parse_explicit_true() {
+            let args = parse("l", "-l true").unwrap();
+            assert_eq!(args.get("l").unwrap().as_bool().unwrap(), true);
+        }
+
+        #[test]
+        fn parse_explicit_true_case_insensitive() {
+            let args = parse("l", "-l True").unwrap();
+            assert_eq!(args.get("l").unwrap().as_bool().unwrap(), true);
+
+            let args = parse("l", "-l TRUE").unwrap();
+            assert_eq!(args.get("l").unwrap().as_bool().unwrap(), true);
+        }
+
+        #[test]
+        fn parse_explicit_false() {
+            let args = parse("l", "-l false").unwrap();
+            assert_eq!(args.get("l").unwrap().as_bool().unwrap(), false);
         }
 
         #[test]
