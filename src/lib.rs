@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 use core::fmt::Debug;
-use std::collections::HashMap;
+use std::{collections::HashMap, io::empty};
 
 fn token_to_kv(token: &str) -> Result<(&str, Box<dyn Args>), ParseErr> {
     match token.len() {
@@ -24,23 +24,56 @@ pub fn parse<'a>(
     let args: Result<HashMap<&str, Box<dyn Args>>, ParseErr> =
         schema.split(',').map(str::trim).map(token_to_kv).collect();
     args.and_then(|mut args| {
-        let vec: Vec<&str> = input.split(' ').collect();
-        for (index, token) in vec.iter().enumerate() {
-            if token.starts_with('-') {
-                let arg_name = &token[1..=1];
-                if let Some(arg) = args.get_mut(arg_name) {
-                    arg.set(&vec[index..]);
-                } else {
-                    return Err(ParseErr::UnknownArg(arg_name.to_string()));
-                }
+        for token in TokensIterator::from(input.to_string()) {
+            if let Some(arg) = args.get_mut(&token.modifier[..]) {
+                arg.set(token.values);
+            } else {
+                return Err(ParseErr::UnknownArg(token.modifier));
             }
         }
         Ok(args)
     })
 }
 
+struct TokensIterator {
+    input: String,
+    cursor: usize,
+}
+
+impl TokensIterator {
+    fn from(input: String) -> Self {
+        Self {
+            input,
+            cursor: 0,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct Token {
+    modifier: String,
+    values: Vec<String>,
+}
+
+
+impl Iterator for TokensIterator {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for segment  in self.input.split('-').skip(self.cursor) {
+            self.cursor += 1; //advance the cursor
+            if segment.len() > 0 {
+                let modifier = segment.split(' ').nth(0).expect("").to_string();
+                let values: Vec<String> = segment.split(' ').skip(1).filter(|i| i.len() > 0).map(ToString::to_string).collect();
+                return Some(Token {modifier, values});
+            }
+        }
+        None
+    }
+}
+
 pub trait Args {
-    fn set(&mut self, tokens: &[&str]);
+    fn set(&mut self, tokens: Vec<String>);
     fn get(&self) -> Option<String>;
     fn as_number(&self) -> Option<isize> {
         self.get().and_then(|v| v.parse().ok())
@@ -57,8 +90,8 @@ struct BoolArg(Option<bool>);
 struct NumberArg(Option<isize>);
 
 impl Args for StringArg {
-    fn set(&mut self, val: &[&str]) {
-        self.0.replace(val[1].to_string());
+    fn set(&mut self, val: Vec<String>) {
+        self.0.replace(val.join(""));
     }
 
     fn get(&self) -> Option<String> {
@@ -66,7 +99,7 @@ impl Args for StringArg {
     }
 }
 impl Args for BoolArg {
-    fn set(&mut self, _: &[&str]) {
+    fn set(&mut self, _: Vec<String>) {
         self.0.replace(true);
     }
 
@@ -78,8 +111,8 @@ impl Args for BoolArg {
     }
 }
 impl Args for NumberArg {
-    fn set(&mut self, val: &[&str]) {
-        if let Ok(val) = val[1].parse() {
+    fn set(&mut self, val: Vec<String>) {
+        if let Ok(val) = val.join("").parse() {
             self.0.replace(val);
         }
     }
@@ -98,6 +131,28 @@ impl Debug for dyn Args {
 #[cfg(test)]
 mod tests {
     use super::*;
+    mod token_iterator {
+        use super::*;
+        #[test]
+        fn test_token_iter() {
+            let tokens = TokensIterator::from("-d /var/logs -p 8080 -l".to_string());
+            let mut iter = tokens.into_iter();
+            assert_eq!(iter.next().unwrap(), Token {
+                modifier: 'd'.to_string(),
+                values: vec!["/var/logs".to_string()],
+            });
+            assert_eq!(iter.next().unwrap(), Token {
+                modifier: 'p'.to_string(),
+                values: vec!["8080".to_string()],
+            });
+            assert_eq!(iter.next().unwrap(), Token {
+                modifier: 'l'.to_string(),
+                values: vec![],
+            });
+            assert_eq!(iter.next(), None);
+            
+        }   
+    }
     mod boolean_args {
         use super::*;
         #[test]
