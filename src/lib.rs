@@ -1,19 +1,21 @@
 #![allow(unused_imports)]
 use core::fmt::Debug;
-use std::{collections::HashMap, io::empty};
+use std::{collections::HashMap, marker::PhantomData, str::FromStr};
 
 fn token_to_kv(token: &str) -> Result<(&str, Box<dyn Args>), ParseErr> {
     match token.len() {
+        0 => Err(ParseErr::InvalidSchema),
         1 => Ok((token, Box::new(BoolArg(false)))),
-        2 => {
+        _ => {
             let arg_name = &token[..=0];
-            match &token[1..=1] {
+            match &token[1..] {
                 "*" => Ok((arg_name, Box::new(StringArg(None)))),
                 "#" => Ok((arg_name, Box::new(NumberArg(None)))),
+                "[*]" => Ok((arg_name, Box::new(StrArrayArg(vec![])))),
+                "[#]" => Ok((arg_name, Box::new(NumberArrayArg(vec![])))),
                 t => Err(ParseErr::UnsupportedArgType(t.to_string())),
             }
         }
-        _ => Err(ParseErr::InvalidSchema),
     }
 }
 
@@ -85,13 +87,49 @@ pub trait Args {
     fn as_bool(&self) -> Option<bool> {
         self.get().and_then(|v| v.parse().ok())
     }
+    fn as_str_array(&self) -> Vec<String> {
+        self.get().map(|v| v.split(',').map(ToString::to_string).collect()).unwrap_or(vec![])
+    }
+    fn as_num_array(&self) -> Vec<isize> {
+        self.get().map(|v| v.split(',').filter_map(|v|v.parse().ok()).collect()).unwrap_or(vec![])
+    }
 }
+
 #[derive(Debug)]
 struct StringArg(Option<String>);
 #[derive(Debug)]
 struct BoolArg(bool);
 #[derive(Debug)]
 struct NumberArg(Option<isize>);
+#[derive(Debug)]
+struct StrArrayArg(Vec<String>);
+#[derive(Debug)]
+struct NumberArrayArg(Vec<isize>);
+
+impl Args for NumberArrayArg {
+    fn set(&mut self, tokens: Vec<String>) -> Result<(), ParseErr> {
+        self.0.append(
+            &mut tokens.into_iter()
+                .filter_map(|t| t.parse().ok())
+                .collect()
+        );
+        Ok(())
+    }
+
+    fn get(&self) -> Option<String> {
+        Some(self.0.iter().map(ToString::to_string).collect::<Vec<String>>().join(","))
+    }
+}
+impl Args for StrArrayArg {
+    fn set(&mut self, mut tokens: Vec<String>) -> Result<(), ParseErr> {
+        self.0.append(&mut tokens);
+        Ok(())
+    }
+
+    fn get(&self) -> Option<String> {
+        Some(self.0.join(","))
+    }
+}
 
 impl Args for StringArg {
     fn set(&mut self, val: Vec<String>) -> Result<(), ParseErr> {
@@ -161,7 +199,6 @@ mod tests {
                 values: vec![],
             });
             assert_eq!(iter.next(), None);
-            
         }   
     }
     mod boolean_args {
@@ -266,6 +303,24 @@ mod tests {
         fn should_return_number_format_err() {
             let args = parse("p#", "-p foo");
             assert_eq!(args.unwrap_err(), ParseErr::NumberFormatErr("foo".to_string()));
+        }
+    }
+
+    mod array_args {
+        use super::*;
+
+        #[test]
+        fn parse_str_arr_arg() {
+            let args = parse("s[*]", "-s this is an array");
+            assert_eq!(args.unwrap().get("s").unwrap().get().unwrap(), "this,is,an,array");
+            let args = parse("s[*]", "-s this is an array");
+            assert_eq!(args.unwrap().get("s").unwrap().as_str_array(), vec!["this","is","an","array"]);
+        }
+
+        #[test]
+        fn parse_number_arr_arg() {
+            let args = parse("p[#]", "-p 1 2 3 4 5");
+            assert_eq!(args.unwrap().get("p").unwrap().as_num_array(), vec![1,2,3,4,5]);
         }
     }
 }
